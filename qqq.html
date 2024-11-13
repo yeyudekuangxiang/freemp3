@@ -1,0 +1,58 @@
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <script type="text/javascript" src="https://assets.woozooo.com/assets/includes/js/jquery.js"></script>
+    <link href="https://assets.woozooo.com/assets/img/tf.css" rel="stylesheet" type="text/css">
+</head>
+<body>
+<div id="outime">地址超时，请刷新</div>
+
+<div class="load" id="tourl">
+    文件加载中...
+</div>
+<script src="https://down-load.lanrar.com/file/kdns.js" type="text/javascript"></script>
+<script src="https://boce.lanosso.com/file/kdns2.js" type="text/javascript"></script>
+<script type="text/javascript">
+    var lanosso = '';
+    if (typeof(killdns2)=='undefined')
+    {
+        var lanosso = '&lanosso';
+    }
+    var wsk_sign = 'c20230908';
+    var aihidcms = '7Sij';
+    var ciucjdsdc = '';
+    var ws_sign = 'c20230818';
+    var sasign = 't';
+    var ajaxdata = '?ctdf';
+    var kdns =1;
+    if (typeof(killdns)=='undefined'){
+        var kdns = 0;
+    }
+    $.ajax({
+        type : 'post',
+        url : '/ajaxm.php?file=89356388',
+         { 'action':'downprocess','signs':ajaxdata,'sign':'UjRTbQ8_bBjdSW1RrV2dTbwRmBTleMgcwUWBXYgZiBj9VcwIhCWlSN1MyVjMLblZjUjBVZVI8Cz4FMA_c_c','websign':ciucjdsdc,'websignkey':aihidcms,'ves':1,'kd':kdns },
+        dataType : 'json',
+        success:function(msg){
+            var date = msg;
+            var dom_down = date.dom;
+            if(date.zt == '1'){
+                $("#tourl").html("<a href="+dom_down+"/file/"+ date.url + lanosso +" target=_blank rel=noreferrer><span class=txt>电信下载</span><span class='txt txtc'>联通下载</span><span class=txt>普通下载</span></a>");
+                setTimeout('$("#outime").css("display","block");',1800000);
+            }else{
+                $("#tourl").html("网页超时，请刷新");
+            };
+
+        },
+        error:function(){
+            $("#tourl").html("获取失败，请刷新");
+        }
+
+    });
+</script>
+
+</body>
+</html>
+
+2024/11/13 16:05:12  <nil>
+    PS C:\Users\yeyud\go\src\github.com\yeyudekuangxiang\freemp3>

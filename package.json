@@ -1,0 +1,19 @@
+{
+  "type": "module",
+  "name": "freemp3",
+  "version": "1.0.0",
+  "main": "aaa.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "cnpm": "^9.4.0",
+    "express": "^4.21.1",
+    "isolated-vm": "^5.0.1",
+    "puppeteer": "^23.7.1"
+  }
+}

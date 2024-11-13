@@ -1,0 +1,6 @@
+.idea/
+*gen_test*
+*-application.json
+.vscode/
+node_modules
+music

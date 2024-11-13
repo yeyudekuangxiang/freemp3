@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>pkopkp</title>
+</head>
+<body>
+
+<script type="module" >
+    import {Ds} from "./index.f4d89668.js";
+    //console.log(location.search.split("?"))
+    //document.body.innerText = encodeURIComponent(atob(location.search.split("?")[1]));
+    document.body.innerText = Ds.encode(encodeURIComponent(atob(location.search.split("?")[1])))
+</script>
+</body>
+</html>
