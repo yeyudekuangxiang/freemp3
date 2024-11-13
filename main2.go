@@ -47,8 +47,52 @@ func main() {
 		log.Panicln(listResp.Code)
 	}
 	for _, item := range listResp.Data.List {
-		log.Println("获取歌手详情", item.Name)
-		artistResp, err := GetArtistDetail(item.Id)
+		log.Println("搜索歌手歌曲", item.Name)
+		for i := 1; i < 10; i++ {
+			searchResp, err := Search(item.Name, i)
+			if err != nil {
+				log.Println("搜索失败", err)
+				break
+			}
+			if searchResp.Code != 200 {
+				log.Println("搜索失败", searchResp)
+				break
+			}
+			if len(searchResp.Data.List) == 0 {
+				break
+			}
+			for _, music := range searchResp.Data.List {
+				log.Println("获取歌曲下载连接", music.Name)
+				q := music.Quality[len(music.Quality)-1]
+				var u string
+				switch qq := q.(type) {
+				case int64:
+					u, err = GetDownLoadUrl(music.Id, strconv.FormatInt(qq, 10))
+				case string:
+					u, err = GetDownLoadUrl(music.Id, qq)
+				case map[string]interface{}:
+					m := qq["name"].(string)
+					u, err = GetDownLoadUrl(music.Id, m)
+				case float64:
+					u, err = GetDownLoadUrl(music.Id, strconv.FormatInt(int64(qq), 10))
+				default:
+					err = fmt.Errorf("music.%v", qq)
+				}
+				if err != nil {
+					log.Println("获取下载连接失败", err)
+					continue
+				}
+				err = down(item.Name, u)
+
+				if err != nil {
+					log.Println("下载歌曲失败", err)
+					continue
+				}
+				log.Println("一秒后继续下载")
+				time.Sleep(time.Second)
+			}
+		}
+		/*artistResp, err := GetArtistDetail(item.Id)
 		if err != nil {
 			log.Panicln(err.Error())
 		}
@@ -84,7 +128,7 @@ func main() {
 			}
 			log.Println("一秒后继续下载")
 			time.Sleep(time.Second)
-		}
+		}*/
 	}
 }
 func main2(d interface{}) (string, error) {
@@ -502,4 +546,103 @@ func down(singer string, u string) error {
 	}
 
 	return nil
+}
+
+type SearchReq struct {
+	SearchReqToken
+	Token string `json:"token"`
+}
+type SearchReqToken struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+	Page int    `json:"page"`
+	V    string `json:"v"`
+	T    int64  `json:"_t"`
+}
+
+func Search(title string, page int) (*SearchResp, error) {
+	reqBodyObj := SearchReq{
+		SearchReqToken: SearchReqToken{
+			Type: "YQM",
+			Text: title,
+			Page: page,
+			V:    "beta",
+			T:    time.Now().UnixMilli(),
+		},
+	}
+	token, err := main2(reqBodyObj.SearchReqToken)
+	if err != nil {
+		return nil, err
+	}
+	reqBodyObj.Token = token
+	reqBody, err := json.Marshal(reqBodyObj)
+	if err != nil {
+		return nil, err
+	}
+	log.Println("Search", string(reqBody))
+
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", "https://api.liumingye.cn/m/api/search", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("accept", "application/json, text/plain, */*")
+	req.Header.Add("accept-language", "zh-CN,zh;q=0.9")
+	req.Header.Add("cache-control", "no-cache")
+	req.Header.Add("content-type", "application/json;charset=UTF-8")
+	req.Header.Add("origin", "https://tool.liumingye.cn")
+	req.Header.Add("pragma", "no-cache")
+	req.Header.Add("priority", "u=1, i")
+	req.Header.Add("sec-ch-ua", "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"")
+	req.Header.Add("sec-ch-ua-mobile", "?0")
+	req.Header.Add("sec-ch-ua-platform", "\"Windows\"")
+	req.Header.Add("sec-fetch-dest", "empty")
+	req.Header.Add("sec-fetch-mode", "cors")
+	req.Header.Add("sec-fetch-site", "same-site")
+	req.Header.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+	req.Header.Add("Cookie", "sl-session=xxRRZKT5NWeIZ3Ii1tsP6Q==")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		return nil, errors.New(res.Status)
+	}
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	v := SearchResp{}
+	return &v, json.Unmarshal(body, &v)
+}
+
+type SearchResp struct {
+	Code int `json:"code"`
+	Data struct {
+		List []struct {
+			Id      string        `json:"id"`
+			Lyric   string        `json:"lyric"`
+			Name    string        `json:"name"`
+			Time    int           `json:"time,omitempty"`
+			Quality []interface{} `json:"quality"`
+			Album   struct {
+				Id   string `json:"id"`
+				Name string `json:"name"`
+				Pic  string `json:"pic"`
+			} `json:"album,omitempty"`
+			Artist []struct {
+				Id   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"artist"`
+			Hash string `json:"hash,omitempty"`
+			Pic  string `json:"pic,omitempty"`
+		} `json:"list"`
+		Total int      `json:"total"`
+		Word  []string `json:"word"`
+	} `json:"data"`
+	Msg string `json:"msg"`
 }
