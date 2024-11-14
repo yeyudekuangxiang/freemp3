@@ -7,10 +7,19 @@
 <body>
 
 <script type="module" >
+    function base64DecodeUnicode(str) {
+        // Step 1: Decode the Base64 string
+        const decodedStr = atob(str);
+
+        // Step 2: Convert to UTF-8 format
+        const utf8Str = decodeURIComponent(escape(decodedStr));
+
+        return utf8Str;
+    }
     import {Ds} from "./index.f4d89668.js";
     //console.log(location.search.split("?"))
-    //document.body.innerText = encodeURIComponent(atob(location.search.split("?")[1]));
-    document.body.innerText = Ds.encode(encodeURIComponent(atob(location.search.split("?")[1])))
+    //document.body.innerText = base64DecodeUnicode(location.search.split("?")[1]);
+    document.body.innerText = Ds.encode(encodeURIComponent(base64DecodeUnicode(location.search.split("?")[1])))
 </script>
 </body>
 </html>

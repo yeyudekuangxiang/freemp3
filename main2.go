@@ -46,7 +46,10 @@ func main() {
 	if listResp.Code != 200 {
 		log.Panicln(listResp.Code)
 	}
-	for _, item := range listResp.Data.List {
+	for ii, item := range listResp.Data.List {
+		if ii == 0 {
+			continue
+		}
 		log.Println("搜索歌手歌曲", item.Name)
 		for i := 1; i < 10; i++ {
 			searchResp, err := Search(item.Name, i)
@@ -62,6 +65,8 @@ func main() {
 				break
 			}
 			for _, music := range searchResp.Data.List {
+				log.Println("一秒后继续下载")
+				time.Sleep(time.Second)
 				log.Println("获取歌曲下载连接", music.Name)
 				q := music.Quality[len(music.Quality)-1]
 				var u string
@@ -82,14 +87,13 @@ func main() {
 					log.Println("获取下载连接失败", err)
 					continue
 				}
-				err = down(item.Name, u)
+				err = down(item.Name, music.Name, u)
 
 				if err != nil {
 					log.Println("下载歌曲失败", err)
 					continue
 				}
-				log.Println("一秒后继续下载")
-				time.Sleep(time.Second)
+
 			}
 		}
 		/*artistResp, err := GetArtistDetail(item.Id)
@@ -346,6 +350,9 @@ func GetDownLoadUrl(id string, quality string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if strings.Contains(resp.Header.Get("Content-Type"), "audio") {
+		return uuu, nil
+	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -485,7 +492,7 @@ func downAjax(path string, data string) (string, error) {
 	//"<a href="+dom_down+"/file/"+ date.url + lanosso +" target=_blank rel=noreferrer//><span class=txt>电信下载</span><span class='txt txtc'>联通下载</span><span class=txt>普通下载</span></a>
 	return fmt.Sprintf("https://down-load.lanrar.com/file/?%s", vvv.Url), nil
 }
-func down(singer string, u string) error {
+func down(singer string, musicName, u string) error {
 	log.Println("downuuuuu", u)
 	// 发送GET请求
 	req, err := http.NewRequest("GET", u, nil)
@@ -526,11 +533,24 @@ func down(singer string, u string) error {
 
 	// 如果没有在Content-Disposition中找到文件名，则从URL中提取
 	if fileName == "" {
-		splitURL := strings.Split(u, "/")
-		fileName = splitURL[len(splitURL)-1]
+		ct := resp.Header.Get("Content-Type")
+		switch ct {
+		case "audio/mpeg":
+			fileName = fmt.Sprintf("%s-%s.mp3", musicName, singer)
+		case "audio/wav":
+			fileName = fmt.Sprintf("%s-%s.wav", musicName, singer)
+		case "audio/ogg", "audio/x-ogg":
+			fileName = fmt.Sprintf("%s-%s.ogg", musicName, singer)
+		case "audio/acc":
+			fileName = fmt.Sprintf("%s-%s.acc", musicName, singer)
+		case "audio/flac", "audio/x-flac":
+			fileName = fmt.Sprintf("%s-%s.flac", musicName, singer)
+		default:
+			fileName = fmt.Sprintf("%s-%s", musicName, singer)
+		}
 	}
 
-	fileName = fmt.Sprintf("./music/%s/%s-%s", singer, singer, fileName)
+	fileName = fmt.Sprintf("./music/%s/%s", singer, fileName)
 	os.MkdirAll("./music/"+singer, os.ModePerm)
 	// 创建本地文件
 	out, err := os.Create(fileName)
@@ -581,9 +601,6 @@ func Search(title string, page int) (*SearchResp, error) {
 	}
 	log.Println("Search", string(reqBody))
 
-	if err != nil {
-		return nil, err
-	}
 	req, err := http.NewRequest("POST", "https://api.liumingye.cn/m/api/search", bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
@@ -617,7 +634,12 @@ func Search(title string, page int) (*SearchResp, error) {
 		return nil, err
 	}
 	v := SearchResp{}
-	return &v, json.Unmarshal(body, &v)
+	err = json.Unmarshal(body, &v)
+	if err != nil {
+		log.Println(string(body))
+		return nil, err
+	}
+	return &v, nil
 }
 
 type SearchResp struct {
@@ -641,8 +663,8 @@ type SearchResp struct {
 			Hash string `json:"hash,omitempty"`
 			Pic  string `json:"pic,omitempty"`
 		} `json:"list"`
-		Total int      `json:"total"`
-		Word  []string `json:"word"`
+		Total interface{} `json:"total"`
+		Word  []string    `json:"word"`
 	} `json:"data"`
 	Msg string `json:"msg"`
 }
