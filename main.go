@@ -49,7 +49,7 @@ func main() {
 
 	log.Println("5秒后开启抓取")
 	time.Sleep(time.Second * 5)
-	for ai := 1; ai < 10; ai++ {
+	for ai := 1; ai < 50; ai++ {
 		listResp, err := GetArtistList(ai)
 		if err != nil {
 			log.Panicln(err.Error())
@@ -61,6 +61,11 @@ func main() {
 			break
 		}
 		for _, item := range listResp.Data.List {
+			_, err := os.Stat("F:\\music\\" + item.Name)
+			if err == nil {
+				log.Println("文件夹已存在", item.Name)
+				continue
+			}
 			log.Println("搜索歌手歌曲", item.Name)
 			for i := 1; i < 20; i++ {
 				searchResp, err := Search(item.Name, i)
@@ -79,6 +84,10 @@ func main() {
 					log.Println("一秒后继续下载")
 					time.Sleep(time.Second)
 					log.Println("获取歌曲下载连接", music.Name)
+					if len(music.Quality) == 0 {
+						log.Println("没有质量列表", music.Name)
+						continue
+					}
 					q := music.Quality[len(music.Quality)-1]
 					var u string
 					switch qq := q.(type) {
