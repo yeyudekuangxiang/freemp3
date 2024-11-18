@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -49,6 +50,9 @@ func main() {
 
 	log.Println("5秒后开启抓取")
 	time.Sleep(time.Second * 5)
+	for _, name := range []string{} {
+		downSinger(name)
+	}
 	for ai := 1; ai < 50; ai++ {
 		listResp, err := GetArtistList(ai)
 		if err != nil {
@@ -61,70 +65,49 @@ func main() {
 			break
 		}
 		for _, item := range listResp.Data.List {
-			_, err := os.Stat("F:\\music\\" + item.Name)
-			if err == nil {
-				log.Println("文件夹已存在", item.Name)
-				continue
-			}
-			log.Println("搜索歌手歌曲", item.Name)
-			for i := 1; i < 20; i++ {
-				searchResp, err := Search(item.Name, i)
-				if err != nil {
-					log.Println("搜索失败", err)
-					break
-				}
-				if searchResp.Code != 200 {
-					log.Println("搜索失败", searchResp)
-					break
-				}
-				if len(searchResp.Data.List) == 0 {
-					break
-				}
-				for _, music := range searchResp.Data.List {
-					log.Println("一秒后继续下载")
-					time.Sleep(time.Second)
-					log.Println("获取歌曲下载连接", music.Name)
-					if len(music.Quality) == 0 {
-						log.Println("没有质量列表", music.Name)
-						continue
-					}
-					q := music.Quality[len(music.Quality)-1]
-					var u string
-					switch qq := q.(type) {
-					case int64:
-						u, err = GetDownLoadUrl(music.Id, strconv.FormatInt(qq, 10))
-					case string:
-						u, err = GetDownLoadUrl(music.Id, qq)
-					case map[string]interface{}:
-						m := qq["name"].(string)
-						u, err = GetDownLoadUrl(music.Id, m)
-					case float64:
-						u, err = GetDownLoadUrl(music.Id, strconv.FormatInt(int64(qq), 10))
-					default:
-						err = fmt.Errorf("music.%v", qq)
-					}
-					if err != nil {
-						log.Println("获取下载连接失败", err)
-						continue
-					}
-					err = down(item.Name, music.Name, u)
+			downSinger(item.Name)
+		}
+	}
+}
 
-					if err != nil {
-						log.Println("下载歌曲失败", err)
-						continue
-					}
-
-				}
-			}
-			/*artistResp, err := GetArtistDetail(item.Id)
-			if err != nil {
-				log.Panicln(err.Error())
-			}
-			if artistResp.Code != 200 {
-				log.Panicln(artistResp.Code)
-			}
-			for _, music := range artistResp.Data.List {
+func downSinger(singerName string) {
+	c := make(chan int, 50)
+	_, err := os.Stat("F:\\music\\" + singerName)
+	if err == nil {
+		log.Println("文件夹已存在", singerName)
+		return
+	}
+	log.Println("搜索歌手歌曲", singerName)
+	for i := 1; i < 20; i++ {
+		searchResp, err := Search(singerName, i)
+		if err != nil {
+			log.Println("搜索失败", err)
+			break
+		}
+		if searchResp.Code != 200 {
+			log.Println("搜索失败", searchResp)
+			break
+		}
+		if len(searchResp.Data.List) == 0 {
+			break
+		}
+		wg := sync.WaitGroup{}
+		for _, music := range searchResp.Data.List {
+			log.Println("一秒后继续下载")
+			time.Sleep(time.Second)
+			c <- 1
+			wg.Add(1)
+			music := music
+			go func() {
+				defer func() {
+					wg.Done()
+					<-c
+				}()
 				log.Println("获取歌曲下载连接", music.Name)
+				if len(music.Quality) == 0 {
+					log.Println("没有质量列表", music.Name)
+					return
+				}
 				q := music.Quality[len(music.Quality)-1]
 				var u string
 				switch qq := q.(type) {
@@ -142,20 +125,66 @@ func main() {
 				}
 				if err != nil {
 					log.Println("获取下载连接失败", err)
-					continue
+					return
 				}
-				err = down(item.Name, u)
-
+				err = down(singerName, music.Name, u)
 				if err != nil {
-					log.Println("下载歌曲失败", err)
-					continue
+					/*if errors.Is(io.ErrUnexpectedEOF, err) {
+						log.Println("下载中断重试一次", music.Name)
+						err = down(singerName, music.Name, u)
+						if err != nil {
+							log.Println("重试失败", music.Name, err)
+						}
+					} else {
+						log.Println("下载歌曲失败", music.Name, err)
+					}*/
+					log.Println("下载歌曲失败", music.Name, err)
+					return
 				}
-				log.Println("一秒后继续下载")
-				time.Sleep(time.Second)
-			}*/
+			}()
 		}
+		wg.Wait()
 	}
+	/*artistResp, err := GetArtistDetail(item.Id)
+	if err != nil {
+		log.Panicln(err.Error())
+	}
+	if artistResp.Code != 200 {
+		log.Panicln(artistResp.Code)
+	}
+	for _, music := range artistResp.Data.List {
+		log.Println("获取歌曲下载连接", music.Name)
+		q := music.Quality[len(music.Quality)-1]
+		var u string
+		switch qq := q.(type) {
+		case int64:
+			u, err = GetDownLoadUrl(music.Id, strconv.FormatInt(qq, 10))
+		case string:
+			u, err = GetDownLoadUrl(music.Id, qq)
+		case map[string]interface{}:
+			m := qq["name"].(string)
+			u, err = GetDownLoadUrl(music.Id, m)
+		case float64:
+			u, err = GetDownLoadUrl(music.Id, strconv.FormatInt(int64(qq), 10))
+		default:
+			err = fmt.Errorf("music.%v", qq)
+		}
+		if err != nil {
+			log.Println("获取下载连接失败", err)
+			continue
+		}
+		err = down(singerName, u)
+
+		if err != nil {
+			log.Println("下载歌曲失败", err)
+			continue
+		}
+		log.Println("一秒后继续下载")
+		time.Sleep(time.Second)
+	}*/
+	close(c)
 }
+
 func main2(d interface{}) (string, error) {
 	data, err := json.Marshal(d)
 	if err != nil {
@@ -571,6 +600,11 @@ func down(singer string, musicName, u string) error {
 		}
 	}
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
 	fileName = fmt.Sprintf("F:\\music\\%s\\%s", singer, fileName)
 	os.MkdirAll("F:\\music\\"+singer, os.ModePerm)
 	// 创建本地文件
@@ -581,7 +615,7 @@ func down(singer string, musicName, u string) error {
 	defer out.Close()
 
 	// 将响应Body复制到文件中
-	_, err = io.Copy(out, resp.Body)
+	_, err = out.Write(body)
 	if err != nil {
 		return err
 	}
