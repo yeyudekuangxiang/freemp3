@@ -22,7 +22,8 @@ import (
 	"time"
 )
 
-var mode = flag.String("mode", "http", "")
+var downPath = flag.String("down", "./down", "")
+var num = flag.Int("num", 2, "")
 
 type ArtistDetailReq struct {
 	ArtistDetailReqToken
@@ -70,10 +71,12 @@ func main() {
 	}
 	return*/
 	flag.Parse()
-	if *mode != "client" {
-		http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
-		return
-	}
+	go func() {
+		err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
+		if err != nil {
+			log.Panicln(err)
+		}
+	}()
 
 	log.Println("5秒后开启抓取")
 	time.Sleep(time.Second * 5)
@@ -98,8 +101,8 @@ func main() {
 }
 
 func downSinger(singerName string) {
-	c := make(chan int, 50)
-	_, err := os.Stat("F:\\music\\" + singerName)
+	c := make(chan int, *num)
+	_, err := os.Stat(*downPath + singerName)
 	if err == nil {
 		log.Println("文件夹已存在", singerName)
 		return
@@ -156,7 +159,7 @@ func downSinger(singerName string) {
 				}
 				realSingerName := ""
 				for _, ar := range music.Artist {
-					realSingerName += "_" + ar.Name
+					realSingerName += "," + ar.Name
 				}
 				if len(realSingerName) > 0 {
 					realSingerName = realSingerName[1:]
@@ -230,7 +233,7 @@ func main2(d interface{}) (string, error) {
 
 	//log.Println(basedata)
 	cmd := exec.Command("node", "index3.js", basedata)
-	cmd.Dir = "E:\\code\\go\\src\\github.com\\yeyudekuangxiang\\freemp3"
+	cmd.Dir = "./"
 	encodeData, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -639,8 +642,9 @@ func down(dirName string, singerName, musicName, u string) error {
 		return err
 	}
 
-	fileName = fmt.Sprintf("F:\\music\\%s\\%s", dirName, fileName)
-	os.MkdirAll("F:\\music\\"+dirName, os.ModePerm)
+	pathName := path.Join(*downPath, dirName)
+	fileName = path.Join(pathName, fileName)
+	os.MkdirAll(pathName, os.ModePerm)
 	// 创建本地文件
 	out, err := os.Create(fileName)
 	if err != nil {
