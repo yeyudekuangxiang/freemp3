@@ -12,8 +12,7 @@ FROM node:20.14.0-alpine3.20 as producer
 WORKDIR /data/freemp3
 
 COPY . .
-RUN npm config set registry https://registry.npmmirror.com && \
-    npm install
+RUN yarn install
 
 COPY --from=builder /tmp/freemp3/freemp3 ./
 
