@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,6 +33,32 @@ type ArtistDetailReqToken struct {
 	T  int64  `json:"_t"`
 }
 
+var p int64
+
+func replace(dirPath string) {
+	dirs, err := os.ReadDir(dirPath)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	for _, dir := range dirs {
+		if dir.IsDir() {
+			replace(path.Join(dirPath, dir.Name()))
+			p++
+			log.Println("已处理", p)
+		} else {
+			if strings.Contains(dir.Name(), "[music.migu.cn]") {
+
+				oldName := path.Join(dirPath, dir.Name())
+				newName := path.Join(dirPath, strings.ReplaceAll(dir.Name(), "[music.migu.cn]", ""))
+				err := os.Rename(oldName, newName)
+				if err != nil {
+					log.Println("重命名失败", dir.Name(), err)
+				}
+			}
+		}
+	}
+}
 func main() {
 	/*uuu, err := GetDownLoadUrl("kOY9", "2000")
 	if err != nil {
@@ -127,7 +154,14 @@ func downSinger(singerName string) {
 					log.Println("获取下载连接失败", err)
 					return
 				}
-				err = down(singerName, music.Name, u)
+				realSingerName := ""
+				for _, ar := range music.Artist {
+					realSingerName += "_" + ar.Name
+				}
+				if len(realSingerName) > 0 {
+					realSingerName = realSingerName[1:]
+				}
+				err = down(singerName, realSingerName, music.Name, u)
 				if err != nil {
 					/*if errors.Is(io.ErrUnexpectedEOF, err) {
 						log.Println("下载中断重试一次", music.Name)
@@ -542,7 +576,7 @@ func downAjax(path string, data string) (string, error) {
 	//"<a href="+dom_down+"/file/"+ date.url + lanosso +" target=_blank rel=noreferrer//><span class=txt>电信下载</span><span class='txt txtc'>联通下载</span><span class=txt>普通下载</span></a>
 	return fmt.Sprintf("https://down-load.lanrar.com/file/?%s", vvv.Url), nil
 }
-func down(singer string, musicName, u string) error {
+func down(dirName string, singerName, musicName, u string) error {
 	log.Println("downuuuuu", u)
 	// 发送GET请求
 	req, err := http.NewRequest("GET", u, nil)
@@ -586,17 +620,17 @@ func down(singer string, musicName, u string) error {
 		ct := resp.Header.Get("Content-Type")
 		switch ct {
 		case "audio/mpeg":
-			fileName = fmt.Sprintf("%s-%s.mp3", musicName, singer)
+			fileName = fmt.Sprintf("%s-%s.mp3", musicName, singerName)
 		case "audio/wav":
-			fileName = fmt.Sprintf("%s-%s.wav", musicName, singer)
+			fileName = fmt.Sprintf("%s-%s.wav", musicName, singerName)
 		case "audio/ogg", "audio/x-ogg":
-			fileName = fmt.Sprintf("%s-%s.ogg", musicName, singer)
+			fileName = fmt.Sprintf("%s-%s.ogg", musicName, singerName)
 		case "audio/acc":
-			fileName = fmt.Sprintf("%s-%s.acc", musicName, singer)
+			fileName = fmt.Sprintf("%s-%s.acc", musicName, singerName)
 		case "audio/flac", "audio/x-flac":
-			fileName = fmt.Sprintf("%s-%s.flac", musicName, singer)
+			fileName = fmt.Sprintf("%s-%s.flac", musicName, singerName)
 		default:
-			fileName = fmt.Sprintf("%s-%s", musicName, singer)
+			fileName = fmt.Sprintf("%s-%s", musicName, singerName)
 		}
 	}
 
@@ -605,8 +639,8 @@ func down(singer string, musicName, u string) error {
 		return err
 	}
 
-	fileName = fmt.Sprintf("F:\\music\\%s\\%s", singer, fileName)
-	os.MkdirAll("F:\\music\\"+singer, os.ModePerm)
+	fileName = fmt.Sprintf("F:\\music\\%s\\%s", dirName, fileName)
+	os.MkdirAll("F:\\music\\"+dirName, os.ModePerm)
 	// 创建本地文件
 	out, err := os.Create(fileName)
 	if err != nil {
