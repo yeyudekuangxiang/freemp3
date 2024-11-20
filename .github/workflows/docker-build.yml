@@ -1,9 +1,9 @@
-name: Build and Push Docker Image
+name: Build and Push Multi-Platform Docker Image
 
 on:
   push:
     branches:
-      - master  # 在推送到main分支时触发
+      - master  # 在推送到 master 分支时触发
   pull_request:
     branches:
       - master
@@ -25,9 +25,10 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Build and push multi-platform Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64,linux/arm/v7  # 指定多个平台
           tags: yeyudekuangxiang/freemp3:latest
