@@ -5,7 +5,7 @@ WORKDIR /tmp/freemp3
 COPY . .
 
 RUN go mod download && \
-    go build -o freemp3 . \
+    go build -o freemp3 .
 
 FROM node:20.14.0-alpine3.20 as producer
 
