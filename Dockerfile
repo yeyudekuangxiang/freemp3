@@ -8,7 +8,7 @@ RUN go mod download && \
     CGO_ENABLED=0 go build -a -ldflags '-extldflags "-static"' -o freemp3 .
 RUN ls    
 
-FROM node:20.14.0-alpine3.20 as producer
+FROM node:20.14.0 as producer
 
 WORKDIR /data/freemp3
 
