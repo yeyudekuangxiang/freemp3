@@ -14,11 +14,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -66,19 +68,48 @@ func main() {
 	flag.Parse()
 
 	if *mode == "http" {
-		err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
+		cmd := exec.Command("node", "index.js")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
 		if err != nil {
 			log.Panicln(err)
 		}
-		return
+		/*err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
+		if err != nil {
+			log.Panicln(err)
+		}
+		return*/
 	}
 
 	if *mode == "" {
 		go func() {
-			err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
+			// 创建一个通道来接收信号
+			sigChan := make(chan os.Signal, 1)
+
+			// 注册要监听的信号
+			signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+			cmd := exec.Command("node", "index.js")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			// 启动一个goroutine来处理信号
+			go func() {
+				<-sigChan
+				log.Println("退出http")
+				if cmd.Process != nil {
+					cmd.Process.Kill()
+				}
+			}()
+
+			err := cmd.Run()
+			if err != nil {
+				log.Println(err)
+			}
+			/*err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
 			if err != nil {
 				log.Panicln(err)
-			}
+			}*/
 		}()
 	}
 
@@ -225,8 +256,28 @@ func downSinger(singerName string) {
 	}*/
 	close(c)
 }
+func encode(d interface{}) (string, error) {
+	data, err := json.Marshal(d)
+	if err != nil {
+		return "", err
+	}
+	//log.Println(string(data))
+	//data = []byte(`{"id":"zP8o","_t":1731480805511}`)
+	basedata := base64.StdEncoding.EncodeToString(data)
+	resp, err := http.Get("http://127.0.0.1:3002/encode?" + basedata)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", errors.New(resp.Status)
+	}
+	data, err = io.ReadAll(resp.Body)
+	return string(data), err
+}
 
 func main2(d interface{}) (string, error) {
+	return encode(d)
 	data, err := json.Marshal(d)
 	if err != nil {
 		return "", err
