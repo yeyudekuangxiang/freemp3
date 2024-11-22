@@ -117,6 +117,25 @@ func main() {
 
 	log.Println("5秒后开启抓取")
 	time.Sleep(time.Second * 5)
+	for i := 0; i <= 10; i++ {
+		if i == 10 {
+			log.Println("http服务未启动,停止抓取")
+			os.Exit(1)
+		}
+		resp, err := http.Get("http://127.0.0.1:3002/index.html")
+		if err != nil {
+			log.Println("检测失败，5秒后重试", err)
+		} else {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				log.Println("http服务已启动")
+				break
+			} else {
+				log.Println("http服务未启动,5秒后重试", resp.StatusCode)
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
 	for _, name := range []string{} {
 		downSinger(name)
 	}
