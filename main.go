@@ -96,16 +96,18 @@ func main() {
 			// 启动一个goroutine来处理信号
 			go func() {
 				<-sigChan
-				log.Println("退出http")
+				log.Println("退出程序")
 				if cmd.Process != nil {
 					cmd.Process.Kill()
 				}
+				os.Exit(0)
 			}()
 
 			err := cmd.Run()
 			if err != nil {
 				log.Println(err)
 			}
+			log.Println("http已退出")
 			/*err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
 			if err != nil {
 				log.Panicln(err)
@@ -256,28 +258,30 @@ func downSinger(singerName string) {
 	}*/
 	close(c)
 }
-func encode(d interface{}) (string, error) {
+func encode(d interface{}) string {
 	data, err := json.Marshal(d)
 	if err != nil {
-		return "", err
+		log.Panicln(err)
 	}
-	//log.Println(string(data))
-	//data = []byte(`{"id":"zP8o","_t":1731480805511}`)
+
 	basedata := base64.StdEncoding.EncodeToString(data)
 	resp, err := http.Get("http://127.0.0.1:3002/encode?" + basedata)
 	if err != nil {
-		return "", err
+		log.Panicln(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return "", errors.New(resp.Status)
+		log.Panicln(resp.Status)
 	}
 	data, err = io.ReadAll(resp.Body)
-	return string(data), err
+	if err != nil {
+		log.Panicln(err)
+	}
+	return string(data)
 }
 
 func main2(d interface{}) (string, error) {
-	return encode(d)
+	return encode(d), nil
 	data, err := json.Marshal(d)
 	if err != nil {
 		return "", err
