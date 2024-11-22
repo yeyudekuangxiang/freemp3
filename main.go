@@ -24,6 +24,7 @@ import (
 
 var downPath = flag.String("down", "./down", "")
 var num = flag.Int("num", 2, "")
+var mode = flag.String("mode", "", "")
 
 type ArtistDetailReq struct {
 	ArtistDetailReqToken
@@ -61,22 +62,25 @@ func replace(dirPath string) {
 	}
 }
 func main() {
-	/*uuu, err := GetDownLoadUrl("kOY9", "2000")
-	if err != nil {
-		log.Panicln(err)
-	}
-	err = down(uuu)
-	if err != nil {
-		log.Panicln(err)
-	}
-	return*/
+
 	flag.Parse()
-	go func() {
+
+	if *mode == "http" {
 		err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
 		if err != nil {
 			log.Panicln(err)
 		}
-	}()
+		return
+	}
+
+	if *mode == "" {
+		go func() {
+			err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
+			if err != nil {
+				log.Panicln(err)
+			}
+		}()
+	}
 
 	log.Println("5秒后开启抓取")
 	time.Sleep(time.Second * 5)
