@@ -4,6 +4,7 @@ import fs from 'fs'
 import http from 'http'
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import qqMusic from 'qq-music-api'
 
 // 获取当前文件的URL
 const __filename = fileURLToPath(import.meta.url);
@@ -13,7 +14,9 @@ const __dirname = dirname(__filename);
 const browser = await puppeteer.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox']
 });
-
+(async ()=>{
+    await loadQQLove()
+})()
 
 // 创建服务器
 const server = http.createServer((req, res) => {
@@ -86,3 +89,21 @@ process.on('SIGTERM', closeBrowser); // 捕获 kill 命令
 server.listen(3002, () => {
     console.log('Server is running on http://localhost:3002');
 });
+
+
+async function loadQQLove() {
+    qqMusic.setCookie("pgv_pvid=8787804069; fqm_pvqid=db8961dc-2778-4a94-83c0-2633ca65f9d1; fqm_sessionid=ccf227f6-4cbf-4ee7-af67-df683ba10812; pgv_info=ssid=s3760339968; ts_refer=www.baidu.com/link; ts_uid=1868027922; _qpsvr_localtk=0.41167863332374344; RK=JXOdH3uCku; ptcz=69f44cf532b78d6685136a19401732e4a07b7c2a7027c32c447cb34036425506; login_type=1; psrf_qqaccess_token=45A23A53CB61AC3AD9EF443D979A1ADD; wxrefresh_token=; tmeLoginType=2; music_ignore_pskey=202306271436Hn@vBj; wxunionid=; wxopenid=; euin=ow-A7wns7e4Aon**; uin=2226064520; qm_keyst=Q_H_L_63k3NEnnkiSavGPC-veWPHtq6SvT-nfQG22LAazuv4-MMECI4lzdajjTEfSmghZ8qfe7q7ETdK1KK-HAmcK7arEBeVyo; psrf_qqopenid=C15BE4CF59E3E3F57378EEAAF1EEC268; psrf_access_token_expiresAt=1733119027; psrf_musickey_createtime=1732514227; psrf_qqrefresh_token=5E626A5FB31F2684B1F60D6B376D0A1F; qqmusic_key=Q_H_L_63k3NEnnkiSavGPC-veWPHtq6SvT-nfQG22LAazuv4-MMECI4lzdajjTEfSmghZ8qfe7q7ETdK1KK-HAmcK7arEBeVyo; psrf_qqunionid=9DCC8C39FFC7B73BBD513006122A9FE9; ts_last=y.qq.com/n/ryqq/profile")
+    let resp =await qqMusic.api("/songlist",{id:611561185})
+    fs.writeFile("./resp.json",JSON.stringify(resp),(err)=>{})
+    let list = []
+    for(let i=0;i<resp.songlist.length;i++){
+        let song = resp.songlist[i]
+        list.push({
+            "songname":song.songname,
+            "singer":song.singer
+        })
+    }
+    let str = JSON.stringify(list)
+    fs.writeFile("./love.json",str, (err)=>{})
+}
+

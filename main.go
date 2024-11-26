@@ -7,8 +7,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/dhowden/tag"
+	flac2 "github.com/eaburns/flac"
+	"github.com/jfreymuth/oggvorbis"
+	"github.com/mewkiz/flac"
 	"io"
 	"log"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -17,14 +22,16 @@ import (
 	"os/signal"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
 
-var downPath = flag.String("down", "./down", "")
+var downPath = flag.String("down", "./music", "")
 var num = flag.Int("num", 2, "")
 var mode = flag.String("mode", "", "")
 
@@ -64,7 +71,8 @@ func replace(dirPath string) {
 	}
 }
 func main() {
-
+	/*exportLove()
+	return*/
 	flag.Parse()
 
 	if *mode == "http" {
@@ -137,11 +145,12 @@ func main() {
 
 func downSinger(singerName string) {
 	c := make(chan int, *num)
-	_, err := os.Stat(*downPath + singerName)
+	_, err := os.Stat(path.Join(*downPath, singerName))
 	if err == nil {
 		log.Println("文件夹已存在", singerName)
 		return
 	}
+
 	log.Println("搜索歌手歌曲", singerName)
 	for i := 1; i < 20; i++ {
 		searchResp, err := Search(singerName, i)
@@ -815,4 +824,214 @@ type SearchResp struct {
 		Word  []string    `json:"word"`
 	} `json:"data"`
 	Msg string `json:"msg"`
+}
+
+type LoveList struct {
+	Songname string `json:"songname"`
+	Singer   []struct {
+		Id   int    `json:"id"`
+		Mid  string `json:"mid,omitempty"`
+		Name string `json:"name"`
+		FI   int    `json:"FI,omitempty"`
+	} `json:"singer"`
+}
+
+func getFlacDuration2(seeker io.Reader) int64 {
+	_, meta, err := flac2.Decode(seeker)
+	if err != nil {
+		log.Println("解析flac失败", err)
+		return 0
+	}
+	log.Printf("解析信息 %+v", meta)
+	return 0
+}
+func getFlacDuration(seeker io.Reader) int64 {
+	//return getFlacDuration2(seeker)
+	stream, err := flac.Parse(seeker)
+	if err != nil {
+		log.Println("解析flac失败", err)
+		return 0
+	}
+
+	sampleRate := stream.Info.SampleRate
+	totalSamples := float64(stream.Info.NSamples)
+	return int64(math.Round(totalSamples / float64(sampleRate)))
+}
+func getOggDuration(reader io.Reader) int64 {
+	// 解码OGG文件
+	stream, err := oggvorbis.NewReader(reader)
+	if err != nil {
+		log.Println("解析失败", err)
+		return 0
+	}
+
+	// 获取时长
+	totalSamples := stream.Length()
+	sampleRate := stream.SampleRate()
+
+	// 计算时长（秒）
+	return int64(math.Round(float64(totalSamples) / float64(sampleRate)))
+}
+func ext(dir string, total *int64) ([]MusicInfo, error) {
+	list := make([]MusicInfo, 0)
+	dirs, err := os.ReadDir(dir)
+	cc := make(chan int, 3)
+	if err != nil {
+		return nil, err
+	}
+	wait := sync.WaitGroup{}
+	for _, d := range dirs {
+		if d.IsDir() {
+			l2, err := ext(path.Join(dir, d.Name()), total)
+			if err != nil {
+				return nil, err
+			}
+			list = append(list, l2...)
+		} else if strings.HasSuffix(d.Name(), ".flac") || strings.HasSuffix(d.Name(), ".mp3") || strings.HasSuffix(d.Name(), ".ogg") {
+			cc <- 1
+			wait.Add(1)
+
+			d := d
+			go func() {
+				defer func() {
+					wait.Done()
+					<-cc
+				}()
+				f, err := os.Open(path.Join(dir, d.Name()))
+				if err != nil {
+					log.Println("读取文件失败", dir, d.Name(), err)
+					return
+				}
+				dddd, _ := io.ReadAll(f)
+				f.Close()
+
+				meta, err := tag.ReadFrom(bytes.NewReader(dddd))
+				if err != nil {
+					log.Println("读取元信息失败", dir, d.Name(), err)
+					return
+				}
+
+				duration := meta.Raw()["TLEN"]
+				realDur := int64(0)
+				switch ms := duration.(type) {
+				case float64:
+					realDur = int64(math.Round(ms / 1000))
+				case float32:
+					realDur = int64(math.Round(float64(ms / 1000)))
+				case int64:
+					realDur = int64(math.Round(float64(ms) / 1000))
+				case int:
+					realDur = int64(math.Round(float64(ms) / 1000))
+				case int32:
+					realDur = int64(math.Round(float64(ms) / 1000))
+				case string:
+					ddd, err := strconv.ParseInt(ms, 10, 64)
+					if err != nil {
+						log.Println("转换时间失败", dir, d.Name(), err)
+					} else {
+						realDur = int64(math.Round(float64(ddd) / 1000))
+					}
+				default:
+					if strings.Contains(d.Name(), ".flac") {
+						realDur = getFlacDuration(bytes.NewReader(dddd))
+					} else if strings.Contains(d.Name(), ".ogg") {
+						realDur = getOggDuration(bytes.NewReader(dddd))
+					} else {
+						log.Printf("未知类型 %s %+v\n", d.Name(), meta.Raw())
+					}
+				}
+				titles := strings.Split(meta.Title(), "-")
+				title := meta.Title()
+				singerName := meta.Artist()
+				if len(titles) == 2 {
+					title = strings.TrimSpace(titles[1])
+					if singerName == "" {
+						singerName = strings.TrimSpace(titles[0])
+					}
+				}
+
+				titles = strings.Split(d.Name(), ".")
+				if len(titles) == 2 {
+					titles = strings.Split(titles[0], "-")
+					if len(titles) == 2 {
+						if title == "" {
+							title = strings.TrimSpace(titles[1])
+						}
+						if singerName == "" {
+							singerName = strings.TrimSpace(titles[0])
+						}
+					}
+				}
+				atomic.AddInt64(total, 1)
+				log.Println("已经读取", atomic.LoadInt64(total))
+				list = append(list, MusicInfo{
+					SongName:   title,
+					SingerName: singerName,
+					Path:       path.Join(dir, d.Name()),
+					Duration:   realDur,
+					Size:       int64(len(dddd)),
+				})
+			}()
+		}
+	}
+	wait.Wait()
+	return list, nil
+}
+
+type MusicInfo struct {
+	SongName   string
+	SingerName string
+	Path       string
+	Duration   int64
+	Size       int64
+}
+
+func exportLove() {
+	loveData, err := os.ReadFile("./love.json")
+	if err != nil {
+		log.Panicln(err)
+	}
+	loveList := make([]LoveList, 0)
+	err = json.Unmarshal(loveData, &loveList)
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	total := int64(0)
+	sources, err := ext("./", &total)
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	builder := bytes.Buffer{}
+	builder.WriteString("#EXTM3U\n#PLAYLIST:我喜欢的音乐\n")
+	success := 0
+	for _, item := range loveList {
+
+		matchList := make([]MusicInfo, 0)
+		for _, s := range sources {
+			singer := ""
+			if len(item.Singer) > 0 {
+				singer = item.Singer[0].Name
+			}
+			if strings.Contains(s.SongName, item.Songname) && strings.Contains(s.SingerName, singer) {
+				matchList = append(matchList, s)
+
+			}
+		}
+		sort.Slice(matchList, func(i, j int) bool {
+			return matchList[i].Size > matchList[j].Size
+		})
+		if len(matchList) > 0 {
+			builder.WriteString(fmt.Sprintf("#EXTINF:%d,%s - %s\n", matchList[0].Duration, matchList[0].SingerName, matchList[0].SongName))
+			builder.WriteString(path.Join("/music", matchList[0].Path))
+			builder.WriteString("\n")
+			log.Println("匹配成功", item.Songname, matchList[0].Path)
+			success++
+		} else {
+			log.Println("匹配失败", item.Songname)
+		}
+	}
+	log.Printf("一共%d 成功%d", len(loveList), success)
+	os.WriteFile("./我喜欢的音乐.m3u8", builder.Bytes(), 0755)
 }
