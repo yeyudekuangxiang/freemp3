@@ -16,6 +16,7 @@ import (
 	"math"
 	"mime"
 	"net/http"
+	_ "net/http/pprof"
 	"net/url"
 	"os"
 	"os/exec"
@@ -75,6 +76,12 @@ func main() {
 	return*/
 	flag.Parse()
 
+	go func() {
+		err := http.ListenAndServe(":3000", nil)
+		if err != nil {
+			log.Println("启动pprof服务器失败", err)
+		}
+	}()
 	if *mode == "http" {
 		cmd := exec.Command("node", "index.js")
 		cmd.Stdout = os.Stdout
