@@ -11,6 +11,10 @@ import (
 	flac2 "github.com/eaburns/flac"
 	"github.com/jfreymuth/oggvorbis"
 	"github.com/mewkiz/flac"
+	"github.com/yeyudekuangxiang/common-go/db"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 	"io"
 	"log"
 	"math"
@@ -71,9 +75,38 @@ func replace(dirPath string) {
 		}
 	}
 }
+
+var header = map[string]string{}
+
 func main() {
-	/*exportLove()
-	return*/
+	requestHeaderStr := os.Getenv("freemp3header")
+	if requestHeaderStr == "" {
+		log.Panicln("请求header为空")
+	}
+	err := json.Unmarshal([]byte(requestHeaderStr), &header)
+	if err != nil {
+		log.Panicln("解析header失败", requestHeaderStr, err)
+	}
+
+	log.Printf("header%+v\n", header)
+	linkDb, err := db.NewMysqlDB(db.Config{
+		Type:         "mysql",
+		Host:         "nas.znil.cn",
+		UserName:     "jzl",
+		Password:     "ZHUImeng521..",
+		Database:     "freemusic",
+		Port:         3306,
+		TablePrefix:  "",
+		MaxOpenConns: 20,
+		MaxIdleConns: 10,
+		MaxIdleTime:  100,
+		MaxLifetime:  100,
+		Logger:       logger.New(log.New(os.Stdout, "", 0), logger.Config{}),
+	})
+	if err != nil {
+		log.Panic("连接数据库失败", err)
+	}
+
 	flag.Parse()
 
 	go func() {
@@ -82,53 +115,37 @@ func main() {
 			log.Println("启动pprof服务器失败", err)
 		}
 	}()
-	if *mode == "http" {
+
+	go func() {
+		// 创建一个通道来接收信号
+		sigChan := make(chan os.Signal, 1)
+
+		// 注册要监听的信号
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		cmd := exec.Command("node", "index.js")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+
+		// 启动一个goroutine来处理信号
+		go func() {
+			<-sigChan
+			log.Println("退出程序")
+			if cmd.Process != nil {
+				cmd.Process.Kill()
+			}
+			os.Exit(0)
+		}()
+
 		err := cmd.Run()
 		if err != nil {
-			log.Panicln(err)
+			log.Println(err)
 		}
+		log.Println("http已退出")
 		/*err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
 		if err != nil {
 			log.Panicln(err)
-		}
-		return*/
-	}
-
-	if *mode == "" {
-		go func() {
-			// 创建一个通道来接收信号
-			sigChan := make(chan os.Signal, 1)
-
-			// 注册要监听的信号
-			signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-			cmd := exec.Command("node", "index.js")
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-
-			// 启动一个goroutine来处理信号
-			go func() {
-				<-sigChan
-				log.Println("退出程序")
-				if cmd.Process != nil {
-					cmd.Process.Kill()
-				}
-				os.Exit(0)
-			}()
-
-			err := cmd.Run()
-			if err != nil {
-				log.Println(err)
-			}
-			log.Println("http已退出")
-			/*err := http.ListenAndServe(":8022", http.FileServer(http.Dir("./")))
-			if err != nil {
-				log.Panicln(err)
-			}*/
-		}()
-	}
+		}*/
+	}()
 
 	log.Println("5秒后开启抓取")
 	time.Sleep(time.Second * 5)
@@ -151,6 +168,25 @@ func main() {
 		}
 		time.Sleep(5 * time.Second)
 	}
+	switch *mode {
+	case "artist":
+		log.Println("拉取歌手")
+		saveAllArtist(linkDb)
+	case "music":
+		log.Println("拉取歌曲")
+		saveAllMusic(linkDb)
+	case "url":
+		log.Println("获取歌曲下载链接")
+		getAllMusicDownUrl(linkDb)
+	case "down":
+		log.Println("下载歌曲")
+		downAllMusic(linkDb)
+
+	default:
+		log.Println("未知模式", *mode)
+	}
+	os.Exit(0)
+
 	for _, name := range []string{} {
 		downSinger(name)
 	}
@@ -170,7 +206,138 @@ func main() {
 		}
 	}
 }
+func saveAllArtist(linkDb *gorm.DB) {
 
+	artistList := make([]Artist, 0)
+	err := linkDb.Find(&artistList).Error
+	if err != nil {
+		log.Panicln("查询歌手失败", err)
+	}
+	existListMap := make(map[string]bool)
+	for _, item := range artistList {
+		existListMap[item.ArtistId] = true
+	}
+
+	for i := 1; i < 50; i++ {
+		insertList := make([]Artist, 0)
+		resp, err := GetArtistList(i)
+		if err != nil {
+			log.Panicln("获取歌手列表失败", i, err)
+		}
+		if resp.Code != 200 {
+			log.Panicln("获取歌手列表失败", i, resp.Code, resp.Msg)
+		}
+		if len(resp.Data.List) == 0 {
+			log.Println("歌手列表以获取完毕", i)
+			break
+		}
+		for _, ar := range resp.Data.List {
+			if existListMap[ar.Id] {
+				log.Println("歌手已存在")
+				continue
+			}
+			insertList = append(insertList, Artist{
+				ArtistId: ar.Id,
+				Name:     ar.Name,
+				Pic:      ar.Pic,
+			})
+		}
+		if len(insertList) == 0 {
+			continue
+		}
+		err = linkDb.Create(&insertList).Error
+		if err != nil {
+			log.Panicln("入库失败", i, err)
+		}
+		log.Println("5秒后继续获取")
+		time.Sleep(5 * time.Second)
+	}
+}
+func fillReq(req *http.Request) {
+	for k, v := range header {
+		req.Header.Add(k, v)
+	}
+	return
+	req.Header.Add("accept", "application/json, text/plain, */*")
+	req.Header.Add("accept-language", "zh-CN,zh;q=0.9")
+	req.Header.Add("cache-control", "no-cache")
+	req.Header.Add("content-type", "application/json;charset=UTF-8")
+	req.Header.Add("cookie", "cf_clearance=zSscDE8WTP9o4BnvuZUHjmesQIhFDDS8mTa_mtydt.A-1733194151-1.2.1.1-JHvSj3qWA2c9AGHD2UcR3TMV8.ladnVTzxfgGc4XRsBExr5A1oHvRrjz8ab.xCGxVHup79XUIgadJwyO1rd03x4LIOLlM8iSn82_d6X8zsLYwZ7IBUeX3R8ejuUIMkfCyusBptcYrIQCX_ewTfAC4wbbaXljfFIKb3ONrxLItovQh_Q5F2YutrFGDNyEoKOWu3CpZHDFRD6kUwyUlrbnFnUaz3nsTBHvEZLrBur_alXS8MnrkdBm2pNzeyyZ2qy6WM8f5vh76pA5liRzaK02zLPwbCA8VIv4_B5kUZChuemJzQ7qqkxyWoqqtqpCscv2WxGAatdImW4i50dqIRbj4Pwa0hJvAlSwlYrdUVpYdkEAgqA8RwxBFJC2_3aUN5CT_7pNMqz8Ln3Ex52dco1SjA; __gads=ID=a272399b69834f90:T=1731397705:RT=1733194151:S=ALNI_MaqdqkKdqQlexWAwVaiXUOT7B-eCA; __gpi=UID=00000db35530df2f:T=1731397705:RT=1733194151:S=ALNI_MbRkas7oneAguteRsqRc3jzwZhGEg; __eoi=ID=495a49f5fddb9e51:T=1731397705:RT=1733194151:S=AA-AfjYg5xi01cqDAASUWzyt3zC0; FCNEC=%5B%5B%22AKsRol84z8RsbKxZ6qjA_LhXPkb9FS2xykA2sSdqgVylQN-nLjIQec9E8ImgddiROgmqxEONiHtiCW0a39PESP5gaBsJpqza-YcU6O-S-xye12CEUeyRtc6uM62N8r2fhDKU3cxfMYha_hOMmI8C1mmz3QZuEv1ygA%3D%3D%22%5D%5D")
+	req.Header.Add("origin", "https://tool.liumingye.cn")
+	req.Header.Add("pragma", "no-cache")
+	req.Header.Add("priority", "u=1, i")
+	req.Header.Add("sec-ch-ua", "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"")
+	req.Header.Add("sec-ch-ua-arch", "\"x86\"")
+	req.Header.Add("sec-ch-ua-bitness", "\"64\"")
+	req.Header.Add("sec-ch-ua-full-version", "\"131.0.6778.86\"")
+	req.Header.Add("sec-ch-ua-full-version-list", "\"Google Chrome\";v=\"131.0.6778.86\", \"Chromium\";v=\"131.0.6778.86\", \"Not_A Brand\";v=\"24.0.0.0\"")
+	req.Header.Add("sec-ch-ua-mobile", "?0")
+	req.Header.Add("sec-ch-ua-model", "\"\"")
+	req.Header.Add("sec-ch-ua-platform", "\"Windows\"")
+	req.Header.Add("sec-ch-ua-platform-version", "\"15.0.0\"")
+	req.Header.Add("sec-fetch-dest", "empty")
+	req.Header.Add("sec-fetch-mode", "cors")
+	req.Header.Add("sec-fetch-site", "same-origin")
+	req.Header.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+}
+func saveAllMusic(linkDb *gorm.DB) {
+	artistList := make([]Artist, 0)
+	err := linkDb.Find(&artistList).Error
+	if err != nil {
+		log.Panicln("查询所有歌手失败", err)
+	}
+	for _, singer := range artistList {
+		if singer.IsFetch == 1 {
+			log.Println("跳过歌手", singer.Name)
+			continue
+		}
+		log.Println("搜索歌手", singer.Name)
+		success := true
+		for i := 1; i < 20; i++ {
+			searchResp, err := Search(singer.Name, i)
+			if err != nil {
+				success = false
+				log.Println("搜索失败", i, err)
+				break
+			}
+			if searchResp.Code != 200 {
+				success = false
+				log.Println("搜索失败", i, searchResp)
+				break
+			}
+			if len(searchResp.Data.List) == 0 {
+				break
+			}
+			insertList := make([]Music, 0)
+			for _, music := range searchResp.Data.List {
+				insertList = append(insertList, Music{
+					MusicId: music.Id,
+					Name:    music.Name,
+					Pic:     music.Pic,
+					Lyric:   music.Lyric,
+					Artist:  toJson(music.Artist),
+					Album:   toJson(music.Album),
+					Time:    music.Time,
+					Quality: toJson(music.Quality),
+				})
+			}
+			err = linkDb.Clauses(clause.OnConflict{DoNothing: true}).Create(&insertList).Error
+			if err != nil {
+				log.Panicln("创建歌曲失败", i, err)
+			}
+			log.Println("5秒后继续")
+			time.Sleep(5 * time.Second)
+		}
+		if success {
+			singer.IsFetch = 1
+			err = linkDb.Save(&singer).Error
+			if err != nil {
+				log.Println("保存歌手歌曲拉取信息失败", singer, err)
+			}
+		}
+	}
+}
 func downSinger(singerName string) {
 	c := make(chan int, *num)
 	_, err := os.Stat(path.Join(*downPath, singerName))
@@ -214,14 +381,14 @@ func downSinger(singerName string) {
 				var u string
 				switch qq := q.(type) {
 				case int64:
-					u, err = GetDownLoadUrl(music.Id, strconv.FormatInt(qq, 10))
+					u, err = GetRealDownLoadUrl(music.Id, strconv.FormatInt(qq, 10))
 				case string:
-					u, err = GetDownLoadUrl(music.Id, qq)
+					u, err = GetRealDownLoadUrl(music.Id, qq)
 				case map[string]interface{}:
 					m := qq["name"].(string)
-					u, err = GetDownLoadUrl(music.Id, m)
+					u, err = GetRealDownLoadUrl(music.Id, m)
 				case float64:
-					u, err = GetDownLoadUrl(music.Id, strconv.FormatInt(int64(qq), 10))
+					u, err = GetRealDownLoadUrl(music.Id, strconv.FormatInt(int64(qq), 10))
 				default:
 					err = fmt.Errorf("music.%v", qq)
 				}
@@ -414,21 +581,7 @@ func GetArtistList(page int) (*ArtistListResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("accept", "application/json, text/plain, */*")
-	req.Header.Add("accept-language", "zh-CN,zh;q=0.9")
-	req.Header.Add("cache-control", "no-cache")
-	req.Header.Add("content-type", "application/json;charset=UTF-8")
-	req.Header.Add("origin", "https://tool.liumingye.cn")
-	req.Header.Add("pragma", "no-cache")
-	req.Header.Add("priority", "u=1, i")
-	req.Header.Add("sec-ch-ua", "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"")
-	req.Header.Add("sec-ch-ua-mobile", "?0")
-	req.Header.Add("sec-ch-ua-platform", "\"Windows\"")
-	req.Header.Add("sec-fetch-dest", "empty")
-	req.Header.Add("sec-fetch-mode", "cors")
-	req.Header.Add("sec-fetch-site", "same-site")
-	req.Header.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-	req.Header.Add("Cookie", "sl-session=FbJJLA+nNWfoqUbiSRZyTQ==")
+	fillReq(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -495,7 +648,7 @@ func GetArtistDetail(id string) (*ArtistDetailResponse, error) {
 	v := ArtistDetailResponse{}
 	return &v, json.Unmarshal(respBody, &v)
 }
-func GetDownLoadUrl(id string, quality string) (string, error) {
+func GetRealDownLoadUrl(id string, quality string) (string, error) {
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	token, err := main2(DownLoadUrlReq{
 		Id:      id,
@@ -512,32 +665,32 @@ func GetDownLoadUrl(id string, quality string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	fillReq(req)
 	req.Header.Add("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
-	req.Header.Add("accept-language", "zh-CN,zh;q=0.9")
-	req.Header.Add("cache-control", "no-cache")
-	req.Header.Add("cookie", "__gads=ID=a272399b69834f90:T=1731397705:RT=1731397705:S=ALNI_MaqdqkKdqQlexWAwVaiXUOT7B-eCA; __gpi=UID=00000db35530df2f:T=1731397705:RT=1731397705:S=ALNI_MbRkas7oneAguteRsqRc3jzwZhGEg; __eoi=ID=495a49f5fddb9e51:T=1731397705:RT=1731397705:S=AA-AfjYg5xi01cqDAASUWzyt3zC0; FCNEC=%5B%5B%22AKsRol-vC3o3y8wHzX2AaSE_EStgtIYuhFklK-t2CovjU0xouQMaNC3I5dyVp5fZwlIoLCF6R4OeJDYU0cvPTyZPzJGXMYnqLVXxfTSYOkTWu3Qk4Ys-HTBk0v1VTl98N-qNgFdnVka6lfdcEOtvrf6Ju4Df_jBV-g%3D%3D%22%5D%5D; sl-session=irU0VeunNWdBfUeqLFkKrw==; sl-session=jgMSNcWoNWcnIeNtlmGyAw==")
-	req.Header.Add("pragma", "no-cache")
-	req.Header.Add("priority", "u=0, i")
-	req.Header.Add("sec-ch-ua", "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"")
-	req.Header.Add("sec-ch-ua-mobile", "?0")
-	req.Header.Add("sec-ch-ua-platform", "\"Windows\"")
-	req.Header.Add("sec-fetch-dest", "document")
-	req.Header.Add("sec-fetch-mode", "navigate")
-	req.Header.Add("sec-fetch-site", "none")
-	req.Header.Add("sec-fetch-user", "?1")
-	req.Header.Add("upgrade-insecure-requests", "1")
-	req.Header.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+	req.Header.Del("Content-Type")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}
-	if strings.Contains(resp.Header.Get("Content-Type"), "audio") {
-		return uuu, nil
-	}
 	defer resp.Body.Close()
+
+	if strings.Contains(resp.Header.Get("Content-Type"), "audio") {
+		if resp.StatusCode == http.StatusFound {
+			location := resp.Header.Get("Location")
+			if location != "" {
+				return location, nil
+			}
+		}
+		return resp.Request.URL.String(), nil
+		//return uuu, nil
+	}
+
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
+	}
+	if len(respBody) == 0 {
+		return "", errors.New("读取下载页body失败:" + resp.Status)
 	}
 	//log.Println(string(respBody))
 
@@ -551,43 +704,64 @@ func GetDownLoadUrl(id string, quality string) (string, error) {
 	}
 
 	log.Println("网盘下载页", fmt.Sprintf("https://m.lanzouy.com/%s", list[1]))
-	downResp, err := http.Get(fmt.Sprintf("https://m.lanzouy.com/%s", list[1]))
+	return getLanRealDown(fmt.Sprintf("https://m.lanzouy.com/%s", list[1]))
+}
+func GetDownLoadUrl1(id string, quality string) (string, error) {
+	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	token, err := main2(DownLoadUrlReq{
+		Id:      id,
+		Quality: quality,
+		T:       t,
+	})
 	if err != nil {
 		return "", err
 	}
-	defer downResp.Body.Close()
-	downBody, err := io.ReadAll(downResp.Body)
-	if err != nil {
-		return "", err
-	}
-	//log.Println(string(downBody))
 
-	uReg, err := regexp.Compile(`(/ajaxm.php.*?)'`)
+	uuu := fmt.Sprintf("https://api.liumingye.cn/m/api/link?id=%s&quality=%s&_t=%s&token=%s", id, quality, t, token)
+	log.Println("网盘跳转页", uuu)
+	req, err := http.NewRequest("GET", uuu, nil)
 	if err != nil {
 		return "", err
 	}
-	list = uReg.FindStringSubmatch(string(downBody))
-	if len(list) != 2 {
-		return "", errors.New("未查到ajaxm")
-	}
-	ajaxUrl := list[1]
-	dataReg, err := regexp.Compile(`data.*?:(.*?\})`)
+	fillReq(req)
+	req.Header.Add("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	req.Header.Del("Content-Type")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}
-	list = dataReg.FindStringSubmatch(string(downBody))
-	if len(list) != 2 {
-		return "", errors.New("未查到ajaxm参数")
-	}
-	ajaxBody := list[1]
-	ajaxBody = strings.ReplaceAll(ajaxBody, "ajaxdata", `'?ctdf'`)
-	ajaxBody = strings.ReplaceAll(ajaxBody, "ciucjdsdc", `''`)
-	ajaxBody = strings.ReplaceAll(ajaxBody, "aihidcms", `'7Sij'`)
-	ajaxBody = strings.ReplaceAll(ajaxBody, "kdns", `1`)
-	ajaxBody = strings.ReplaceAll(ajaxBody, `'`, `"`)
-	//log.Println(ajaxUrl, ajaxBody)
-	return downAjax(ajaxUrl, ajaxBody)
+	defer resp.Body.Close()
 
+	if strings.Contains(resp.Header.Get("Content-Type"), "audio") {
+		if resp.StatusCode == http.StatusFound {
+			location := resp.Header.Get("Location")
+			if location != "" {
+				return location, nil
+			}
+		}
+		return resp.Request.URL.String(), nil
+		//return uuu, nil
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if len(respBody) == 0 {
+		return "", errors.New("读取下载页body失败:" + resp.Status)
+	}
+	//log.Println(string(respBody))
+
+	srcReg, err := regexp.Compile(`iframe.*src="(.*?)".*?iframe`)
+	if err != nil {
+		return "", err
+	}
+	list := srcReg.FindStringSubmatch(string(respBody))
+	if len(list) != 2 {
+		return "", errors.New("没有匹配地址")
+	}
+
+	return fmt.Sprintf("https://m.lanzouy.com/%s", list[1]), nil
 }
 
 type DownAjaxResp struct {
@@ -792,21 +966,7 @@ func Search(title string, page int) (*SearchResp, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("accept", "application/json, text/plain, */*")
-	req.Header.Add("accept-language", "zh-CN,zh;q=0.9")
-	req.Header.Add("cache-control", "no-cache")
-	req.Header.Add("content-type", "application/json;charset=UTF-8")
-	req.Header.Add("origin", "https://tool.liumingye.cn")
-	req.Header.Add("pragma", "no-cache")
-	req.Header.Add("priority", "u=1, i")
-	req.Header.Add("sec-ch-ua", "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"")
-	req.Header.Add("sec-ch-ua-mobile", "?0")
-	req.Header.Add("sec-ch-ua-platform", "\"Windows\"")
-	req.Header.Add("sec-fetch-dest", "empty")
-	req.Header.Add("sec-fetch-mode", "cors")
-	req.Header.Add("sec-fetch-site", "same-site")
-	req.Header.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-	req.Header.Add("Cookie", "sl-session=xxRRZKT5NWeIZ3Ii1tsP6Q==")
+	fillReq(req)
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -1064,4 +1224,299 @@ func exportLove() {
 	}
 	log.Printf("一共%d 成功%d", len(loveList), success)
 	os.WriteFile("./我喜欢的音乐.m3u8", builder.Bytes(), 0755)
+}
+
+type Artist struct {
+	ID       int64
+	ArtistId string
+	Name     string
+	Pic      string
+	IsFetch  int
+}
+
+func (a Artist) TableName() string {
+	return "artist"
+}
+
+type Music struct {
+	ID      int64
+	MusicId string
+	Name    string
+	Pic     string
+	Lyric   string
+	Artist  string
+	Album   string
+	Time    int
+	Quality string
+	DownUrl string
+	IsDown  int
+	Path    string
+}
+
+func toJson(v interface{}) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Println(err)
+		return "{}"
+	}
+	return string(data)
+}
+func getAllMusicDownUrl(linkDb *gorm.DB) {
+	musicList := make([]Music, 0)
+	c := make(chan int, *num)
+	linkDb.FindInBatches(&musicList, 100, func(tx *gorm.DB, batch int) error {
+		wg := sync.WaitGroup{}
+		for _, music := range musicList {
+			if music.DownUrl != "" {
+				continue
+			}
+			music := music
+			time.Sleep(time.Second)
+			c <- 1
+			wg.Add(1)
+			go func() {
+				defer func() {
+					wg.Done()
+					<-c
+				}()
+				quality, err := getLastQuality(music.Quality)
+				if err != nil {
+					log.Println("解析质量失败", music.ID, err)
+					return
+				}
+				downUrl, err := GetDownLoadUrl1(music.MusicId, quality)
+				if err != nil {
+					log.Println("获取下载链接失败", music.ID, err)
+					return
+				}
+				if downUrl == "" {
+					log.Println("未获取到下载链接", music.ID)
+					return
+				}
+				music.DownUrl = downUrl
+				err = tx.Save(&music).Error
+				if err != nil {
+					log.Println("保存下载链接失败", music, err)
+				}
+				return
+			}()
+		}
+		wg.Wait()
+		log.Println("3秒后继续获取下载链接")
+		time.Sleep(time.Second * 3)
+		return nil
+	})
+}
+func downAllMusic(linkDb *gorm.DB) {
+	musicList := make([]Music, 0)
+	c := make(chan int, *num)
+	linkDb.FindInBatches(&musicList, 100, func(tx *gorm.DB, batch int) error {
+		wg := sync.WaitGroup{}
+		for _, music := range musicList {
+			if music.IsDown == 1 {
+				continue
+			}
+			if music.DownUrl == "" {
+				log.Println("没有下载链接", music.ID)
+				continue
+			}
+			music := music
+			time.Sleep(time.Second)
+			c <- 1
+			wg.Add(1)
+			go func() {
+				defer func() {
+					wg.Done()
+					<-c
+				}()
+				dir, realSingerName := getSingerName(music.Artist)
+				filePath, err := autoDown(dir, realSingerName, music.Name, music.DownUrl)
+				if err != nil {
+					log.Println("下载失败", music.ID, err)
+				} else {
+					music.IsDown = 1
+					music.Path = filePath
+					err = tx.Save(&music).Error
+					if err != nil {
+						log.Println("保存下载状态失败", music, err)
+					}
+				}
+				return
+			}()
+		}
+		wg.Wait()
+		log.Println("5秒后继续下载")
+		time.Sleep(time.Second * 5)
+		return nil
+	})
+}
+
+func getLastQuality(qualityStr string) (string, error) {
+	quality := make([]interface{}, 0)
+	err := json.Unmarshal([]byte(qualityStr), &quality)
+	if err != nil {
+		return "", err
+	}
+	if len(quality) == 0 {
+		return "", errors.New("没有质量:" + qualityStr)
+	}
+	q := quality[len(quality)-1]
+	switch qq := q.(type) {
+	case int64:
+		return strconv.FormatInt(qq, 10), nil
+	case string:
+		return qq, nil
+	case map[string]interface{}:
+		return qq["name"].(string), nil
+
+	case float64:
+		return strconv.FormatInt(int64(qq), 10), nil
+	default:
+		return "", errors.New("未识别到质量" + qualityStr)
+	}
+}
+func getSingerName(singerStr string) (string, string) {
+	m := make([]map[string]string, 0)
+	err := json.Unmarshal([]byte(singerStr), &m)
+	if err != nil || len(m) == 0 {
+		log.Println("解析歌手失败", singerStr, err)
+		return "未知", "未知"
+	}
+
+	realSingerName := ""
+	for _, ar := range m {
+		realSingerName += "," + ar["name"]
+	}
+	if len(realSingerName) > 0 {
+		realSingerName = realSingerName[1:]
+	}
+	name := m[0]["name"]
+	if name == "" {
+		return "未知", "未知"
+	}
+	return name, realSingerName
+}
+func autoDown(dirName string, singerName, musicName, u string) (string, error) {
+	log.Println("downuuuuu", u)
+
+	if strings.Contains(u, "lanzouy.com") {
+		realUrl, err := getLanRealDown(u)
+		if err != nil {
+			log.Println("获取蓝奏云真实下载链接失败", u, err)
+			return "", err
+		} else {
+			log.Println("获取蓝奏云真实下载链接成功", realUrl)
+			u = realUrl
+		}
+	}
+	// 发送GET请求
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return "", err
+	}
+	if strings.Contains(u, "liumingye") {
+		fillReq(req)
+		req.Header.Set("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	//log.Println(resp, err)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var fileName string
+	ct := resp.Header.Get("Content-Type")
+	switch ct {
+	case "audio/mpeg":
+		fileName = fmt.Sprintf("%s-%s.mp3", musicName, singerName)
+	case "audio/wav":
+		fileName = fmt.Sprintf("%s-%s.wav", musicName, singerName)
+	case "audio/ogg", "audio/x-ogg":
+		fileName = fmt.Sprintf("%s-%s.ogg", musicName, singerName)
+	case "audio/acc":
+		fileName = fmt.Sprintf("%s-%s.acc", musicName, singerName)
+	case "audio/flac", "audio/x-flac":
+		fileName = fmt.Sprintf("%s-%s.flac", musicName, singerName)
+	default:
+		log.Println("未知的音频格式", u, musicName, ct)
+	}
+
+	// 检查Content-Disposition头以获取文件名
+	cd := resp.Header.Get("Content-Disposition")
+
+	if cd != "" && fileName == "" {
+		_, params, err := mime.ParseMediaType(cd)
+		if err == nil {
+			fileName = params["filename"]
+		}
+	}
+
+	if fileName == "" {
+		fileName = fmt.Sprintf("%s-%s", musicName, singerName)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if bytes.Contains(body, []byte("验证")) {
+		return "", errors.New("安全验证")
+	}
+	pathName := path.Join(*downPath, dirName)
+	fileName = path.Join(pathName, fileName)
+	os.MkdirAll(pathName, os.ModePerm)
+	// 创建本地文件
+	out, err := os.Create(fileName)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	// 将响应Body复制到文件中
+	_, err = out.Write(body)
+	if err != nil {
+		return "", err
+	}
+
+	return fileName, nil
+}
+func getLanRealDown(url string) (string, error) {
+	downResp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer downResp.Body.Close()
+	downBody, err := io.ReadAll(downResp.Body)
+	if err != nil {
+		return "", err
+	}
+	//log.Println(string(downBody))
+
+	uReg, err := regexp.Compile(`(/ajaxm.php.*?)'`)
+	if err != nil {
+		return "", err
+	}
+	list := uReg.FindStringSubmatch(string(downBody))
+	if len(list) != 2 {
+		return "", errors.New("未查到ajaxm")
+	}
+	ajaxUrl := list[1]
+	dataReg, err := regexp.Compile(`data.*?:(.*?\})`)
+	if err != nil {
+		return "", err
+	}
+	list = dataReg.FindStringSubmatch(string(downBody))
+	if len(list) != 2 {
+		return "", errors.New("未查到ajaxm参数")
+	}
+	ajaxBody := list[1]
+	ajaxBody = strings.ReplaceAll(ajaxBody, "ajaxdata", `'?ctdf'`)
+	ajaxBody = strings.ReplaceAll(ajaxBody, "ciucjdsdc", `''`)
+	ajaxBody = strings.ReplaceAll(ajaxBody, "aihidcms", `'7Sij'`)
+	ajaxBody = strings.ReplaceAll(ajaxBody, "kdns", `1`)
+	ajaxBody = strings.ReplaceAll(ajaxBody, `'`, `"`)
+	//log.Println(ajaxUrl, ajaxBody)
+	return downAjax(ajaxUrl, ajaxBody)
+
 }
