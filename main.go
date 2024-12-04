@@ -689,22 +689,8 @@ func GetRealDownLoadUrl(id string, quality string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(respBody) == 0 {
-		return "", errors.New("读取下载页body失败:" + resp.Status)
-	}
-	//log.Println(string(respBody))
 
-	srcReg, err := regexp.Compile(`iframe.*src="(.*?)".*?iframe`)
-	if err != nil {
-		return "", err
-	}
-	list := srcReg.FindStringSubmatch(string(respBody))
-	if len(list) != 2 {
-		return "", errors.New("没有匹配地址")
-	}
-
-	log.Println("网盘下载页", fmt.Sprintf("https://m.lanzouy.com/%s", list[1]))
-	return getLanRealDown(fmt.Sprintf("https://m.lanzouy.com/%s", list[1]))
+	return getLanRealDownFromBody(respBody)
 }
 func GetDownLoadUrl1(id string, quality string) (string, error) {
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
@@ -732,36 +718,18 @@ func GetDownLoadUrl1(id string, quality string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	if strings.Contains(resp.Header.Get("Content-Type"), "audio") {
-		if resp.StatusCode == http.StatusFound {
-			location := resp.Header.Get("Location")
-			if location != "" {
-				return location, nil
-			}
-		}
-		return resp.Request.URL.String(), nil
-		//return uuu, nil
+	pageUrl := resp.Request.URL.String()
+	if !strings.Contains(pageUrl, "liumingye") {
+		return pageUrl, nil
 	}
-
-	respBody, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
-	if len(respBody) == 0 {
-		return "", errors.New("读取下载页body失败:" + resp.Status)
+	if bytes.Contains(body, []byte("版权")) {
+		return "", errors.New("版权问题下架")
 	}
-	//log.Println(string(respBody))
-
-	srcReg, err := regexp.Compile(`iframe.*src="(.*?)".*?iframe`)
-	if err != nil {
-		return "", err
-	}
-	list := srcReg.FindStringSubmatch(string(respBody))
-	if len(list) != 2 {
-		return "", errors.New("没有匹配地址")
-	}
-
-	return fmt.Sprintf("https://m.lanzouy.com/%s", list[1]), nil
+	return pageUrl, nil
 }
 
 type DownAjaxResp struct {
@@ -1481,8 +1449,25 @@ func autoDown(dirName string, singerName, musicName, u string) (string, error) {
 
 	return fileName, nil
 }
-func getLanRealDown(url string) (string, error) {
-	downResp, err := http.Get(url)
+func getLanRealDownFromBody(respBody []byte) (string, error) {
+
+	if len(respBody) == 0 {
+		return "", errors.New("body长度为0")
+	}
+	//log.Println(string(respBody))
+
+	srcReg, err := regexp.Compile(`iframe.*src="(.*?)".*?iframe`)
+	if err != nil {
+		return "", err
+	}
+	list := srcReg.FindStringSubmatch(string(respBody))
+	if len(list) != 2 {
+		return "", errors.New("没有匹配地址")
+	}
+
+	log.Println("网盘下载页", fmt.Sprintf("https://m.lanzouy.com/%s", list[1]))
+
+	downResp, err := http.Get(fmt.Sprintf("https://m.lanzouy.com/%s", list[1]))
 	if err != nil {
 		return "", err
 	}
@@ -1497,7 +1482,7 @@ func getLanRealDown(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	list := uReg.FindStringSubmatch(string(downBody))
+	list = uReg.FindStringSubmatch(string(downBody))
 	if len(list) != 2 {
 		return "", errors.New("未查到ajaxm")
 	}
@@ -1519,4 +1504,16 @@ func getLanRealDown(url string) (string, error) {
 	//log.Println(ajaxUrl, ajaxBody)
 	return downAjax(ajaxUrl, ajaxBody)
 
+}
+func getLanRealDown(pageUrl string) (string, error) {
+	resp, err := http.Get(pageUrl)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return getLanRealDownFromBody(respBody)
 }

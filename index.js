@@ -14,9 +14,6 @@ const __dirname = dirname(__filename);
 const browser = await puppeteer.launch({
     args: ['--no-sandbox', '--disable-setuid-sandbox']
 });
-(async ()=>{
-    await loadQQLove()
-})()
 
 // 创建服务器
 const server = http.createServer((req, res) => {
