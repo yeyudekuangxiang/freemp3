@@ -727,7 +727,7 @@ func GetDownLoadUrl1(id string, quality string) (string, error) {
 		return "", err
 	}
 	if bytes.Contains(body, []byte("版权")) {
-		return "", errors.New("版权问题下架")
+		return "nocopyright", nil
 	}
 	return pageUrl, nil
 }
@@ -1286,6 +1286,10 @@ func downAllMusic(linkDb *gorm.DB) {
 			}
 			if music.DownUrl == "" {
 				log.Println("没有下载链接", music.ID)
+				continue
+			}
+			if music.DownUrl == "nocopyright" {
+				log.Println("没有版权下架", music.ID)
 				continue
 			}
 			music := music
