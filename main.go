@@ -689,7 +689,9 @@ func GetRealDownLoadUrl(id string, quality string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
+	if len(respBody) == 0 {
+		return "", fmt.Errorf("body长度为0 %d", resp.StatusCode)
+	}
 	return getLanRealDownFromBody(respBody)
 }
 func GetDownLoadUrl1(id string, quality string) (string, error) {
@@ -1401,15 +1403,15 @@ func autoDown(dirName string, singerName, musicName, u string) (string, error) {
 	ct := resp.Header.Get("Content-Type")
 	switch ct {
 	case "audio/mpeg":
-		fileName = fmt.Sprintf("%s-%s.mp3", musicName, singerName)
+		fileName = fmt.Sprintf("%s - %s.mp3", musicName, singerName)
 	case "audio/wav":
-		fileName = fmt.Sprintf("%s-%s.wav", musicName, singerName)
+		fileName = fmt.Sprintf("%s - %s.wav", musicName, singerName)
 	case "audio/ogg", "audio/x-ogg":
-		fileName = fmt.Sprintf("%s-%s.ogg", musicName, singerName)
+		fileName = fmt.Sprintf("%s - %s.ogg", musicName, singerName)
 	case "audio/acc":
-		fileName = fmt.Sprintf("%s-%s.acc", musicName, singerName)
+		fileName = fmt.Sprintf("%s - %s.acc", musicName, singerName)
 	case "audio/flac", "audio/x-flac":
-		fileName = fmt.Sprintf("%s-%s.flac", musicName, singerName)
+		fileName = fmt.Sprintf("%s - %s.flac", musicName, singerName)
 	default:
 		log.Println("未知的音频格式", u, musicName, ct)
 	}
@@ -1420,12 +1422,17 @@ func autoDown(dirName string, singerName, musicName, u string) (string, error) {
 	if cd != "" && fileName == "" {
 		_, params, err := mime.ParseMediaType(cd)
 		if err == nil {
-			fileName = params["filename"]
+			fileExt := path.Ext(params["filename"])
+			if fileExt != "" {
+				fileName = fmt.Sprintf("%s - %s%s", musicName, singerName, fileExt)
+			} else if params["filename"] != "" {
+				fileName = params["filename"]
+			}
 		}
 	}
 
 	if fileName == "" {
-		fileName = fmt.Sprintf("%s-%s", musicName, singerName)
+		fileName = fmt.Sprintf("%s - %s", musicName, singerName)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -1518,6 +1525,9 @@ func getLanRealDown(pageUrl string) (string, error) {
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
+	}
+	if len(respBody) == 0 {
+		return "", fmt.Errorf("body长度为0 %d", resp.StatusCode)
 	}
 	return getLanRealDownFromBody(respBody)
 }
