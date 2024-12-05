@@ -181,7 +181,9 @@ func main() {
 	case "down":
 		log.Println("下载歌曲")
 		downAllMusic(linkDb)
-
+	case "downlrc":
+		log.Println("下载歌词")
+		downLrc(linkDb)
 	default:
 		log.Println("未知模式", *mode)
 	}
@@ -1530,4 +1532,56 @@ func getLanRealDown(pageUrl string) (string, error) {
 		return "", fmt.Errorf("body长度为0 %d", resp.StatusCode)
 	}
 	return getLanRealDownFromBody(respBody)
+}
+func downLrc(linkDb *gorm.DB) {
+	musicList := make([]Music, 0)
+	c := make(chan int, *num)
+	linkDb.FindInBatches(&musicList, 100, func(tx *gorm.DB, batch int) error {
+		wg := sync.WaitGroup{}
+		for _, music := range musicList {
+			if music.IsDown == 0 {
+				continue
+			}
+			if music.Lyric == "" {
+				log.Println("没有lrc下载链接", music.ID)
+				continue
+			}
+			music := music
+			time.Sleep(time.Second)
+			c <- 1
+			wg.Add(1)
+			go func() {
+				defer func() {
+					wg.Done()
+					<-c
+				}()
+				resp, err := http.Get(music.Lyric)
+				if err != nil {
+					log.Println("请求歌词失败", music.ID, err)
+					return
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != 200 {
+					log.Println("请求歌词状态码异常", music.ID, err)
+					return
+				}
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					log.Println("读取歌词响应失败", music.ID, err)
+					return
+				}
+				lrcPath := strings.ReplaceAll(music.Path, path.Ext(music.Path), ".lrc")
+				os.MkdirAll(path.Dir(lrcPath), os.ModePerm)
+				err = os.WriteFile(lrcPath, body, os.ModePerm)
+				if err != nil {
+					log.Println("保存歌词文件失败")
+					return
+				}
+			}()
+		}
+		wg.Wait()
+		log.Println("5秒后继续下载")
+		time.Sleep(time.Second * 5)
+		return nil
+	})
 }
